@@ -140,11 +140,12 @@ describe('federated_fact_lookup', () => {
       { query: 'lambda', sources: ['wiki', 'hn', 'ddg'] },
       { signal: undefined },
     )
+    // Sections are labelled by type, so the instance names above are irrelevant.
     const byLabel = Object.fromEntries(value.sections.map((section) => [section.label, section]))
-    assert.equal(byLabel['维基'].hits.length, 1)
-    assert.equal(byLabel['DDG'].hits.length, 1)
+    assert.equal(byLabel['Wikipedia 概要'].hits.length, 1)
+    assert.equal(byLabel['DuckDuckGo 即时回答'].hits.length, 1)
     // The failed source reports its own error and nothing else is affected.
-    assert.match(byLabel['HN'].error, /HTTP 503/)
+    assert.match(byLabel['Hacker News'].error, /HTTP 503/)
     assert.equal(value.sections.length, 3)
     __setFetchForTest(null)
   })
@@ -157,7 +158,7 @@ describe('federated_fact_lookup', () => {
       { id: 'ddg', type: 'duckduckgo', name: 'DDG', enabled: true },
     ]) })
     const value = await tools.get('federated_fact_lookup').execute({ query: 'x', sources: ['wiki', 'ddg'] }, { signal: undefined })
-    const wiki = value.sections.find((section) => section.label === '维基')
+    const wiki = value.sections.find((section) => section.label === 'Wikipedia 概要')
     assert.match(wiki.error, /HTTP 500/)
     // The other source still ran: stop only ends this source's own chain.
     assert.equal(value.sections.length, 2)
@@ -186,7 +187,8 @@ describe('federated_fact_lookup', () => {
       { id: 'wiki-a', type: 'wikipedia', name: '维基 A', enabled: true },
       { id: 'wiki-b', type: 'wikipedia', name: '维基 B', enabled: true },
     ]) })
-    const value = await tools.get('federated_fact_lookup').execute({ query: 'lambda', sources: ['wiki-a', 'wiki-b'] }, { signal: undefined })
+    // Naming one instance selects its type, whose chain is both instances.
+    const value = await tools.get('federated_fact_lookup').execute({ query: 'lambda', sources: ['wiki-a'] }, { signal: undefined })
     assert.equal(attempt, 2)
     assert.match(value.text, /\*\*Lambda calculus\*\*/)
     __setFetchForTest(null)
@@ -206,7 +208,7 @@ describe('federated_web_search', () => {
       { id: 'tv', type: 'tavily', name: 'Tavily', enabled: true },
       { id: 'bc', type: 'bocha', name: '博查', enabled: true },
     ]) })
-    const value = await tools.get('federated_web_search').execute({ query: 'q', sources: ['tv', 'bc'], mode: 'parallel' }, { signal: undefined })
+    const value = await tools.get('federated_web_search').execute({ query: 'q', sources: ['tv', 'bc'] }, { signal: undefined })
     assert.equal(value.answer, 'the answer')
     // The URL both sources returned comes first and lists both engines.
     assert.deepEqual(value.sources[0].engines, ['tavily', 'bocha'])
@@ -225,7 +227,7 @@ describe('federated_web_search', () => {
     __setFetchForTest(null)
   })
 
-  it('chain mode stops at the first named source that answers', async () => {
+  it('runs every named type in parallel, even when the first one answers', async () => {
     let bochaCalls = 0
     __setFetchForTest(async (url) => {
       const target = String(url)
@@ -240,17 +242,44 @@ describe('federated_web_search', () => {
       }
       if (target.includes('api.bochaai.com')) {
         bochaCalls += 1
-        return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ code: 200, data: { webPages: { value: [] } } }), text: async () => '' }
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          json: async () => ({ code: 200, data: { webPages: { value: [{ name: 'B', url: 'https://b.test', summary: 'body' }] } } }),
+          text: async () => '',
+        }
       }
       return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}), text: async () => '' }
     })
     const { ctx, tools } = fakeCtx({ INFO_TV: 'sk-tv', INFO_BC: 'sk-bc' })
-    apply(ctx, { mode: 'chain', instances: JSON.stringify([
+    apply(ctx, { instances: JSON.stringify([
       { id: 'tv', type: 'tavily', name: 'Tavily', enabled: true },
       { id: 'bc', type: 'bocha', name: '博查', enabled: true },
     ]) })
-    const value = await tools.get('federated_web_search').execute({ query: 'q', sources: ['tv', 'bc'], mode: 'chain' }, { signal: undefined })
-    assert.equal(bochaCalls, 0)
+    const value = await tools.get('federated_web_search').execute({ query: 'q', sources: ['tavily', 'bocha'] }, { signal: undefined })
+    assert.equal(bochaCalls, 1)
+    assert.deepEqual(value.sources.map((source) => source.engines), [['tavily'], ['bocha']])
+    __setFetchForTest(null)
+  })
+
+  it('skips a whole type when the user disabled it', async () => {
+    __setFetchForTest(fakeFetch([['api.tavily.com', { body: { results: [{ title: 'T', url: 'https://t.test', content: 'body' }] } }]]))
+    const { ctx, tools } = fakeCtx({ INFO_TV: 'sk-tv', INFO_BC: 'sk-bc' })
+    apply(ctx, {
+      disabledTypes: '["bocha"]',
+      instances: JSON.stringify([
+        { id: 'tv', type: 'tavily', name: 'Tavily', enabled: true },
+        { id: 'bc', type: 'bocha', name: '博查', enabled: true },
+      ]),
+    })
+    // Naming the disabled type is refused with the catalog, so the model can
+    // recover in the same turn.
+    await assert.rejects(
+      tools.get('federated_web_search').execute({ query: 'q', sources: ['bocha'] }, { signal: undefined }),
+      /unknown web source\(s\): bocha/,
+    )
+    const value = await tools.get('federated_web_search').execute({ query: 'q', sources: ['tavily'] }, { signal: undefined })
     assert.deepEqual(value.sources.map((source) => source.engines), [['tavily']])
     __setFetchForTest(null)
   })
@@ -262,8 +291,8 @@ describe('federated_web_search', () => {
       { id: 'tv', type: 'tavily', name: 'Tavily', enabled: true },
     ]) })
     const withQuery = await tools.get('federated_fact_lookup').execute({ query: 'lambda' }, { signal: undefined })
-    assert.match(withQuery.text, /`wiki` — 维基（事实查询）/)
-    // A keyed source without a key is deliberately absent from the catalog.
+    assert.match(withQuery.text, /`wikipedia` — Wikipedia 概要（事实查询）/)
+    // A keyed type without a key is deliberately absent from the catalog.
     assert.doesNotMatch(withQuery.text, /Tavily/)
     const bare = await tools.get('federated_web_search').execute({}, { signal: undefined })
     assert.match(bare.text, /要用哪个信息源，请带上 query 与 sources 再调用一次/)
@@ -275,7 +304,7 @@ describe('federated_web_search', () => {
     apply(ctx, { instances: JSON.stringify([{ id: 'sx', type: 'searxng', name: 'SearXNG', enabled: true, baseUrl: 'https://searx.be' }]) })
     await assert.rejects(
       tools.get('federated_web_search').execute({ query: 'q', sources: ['nope'] }, { signal: undefined }),
-      /unknown web source\(s\): nope[\s\S]*`sx` — SearXNG（网页搜索）/,
+      /unknown web source\(s\): nope[\s\S]*`searxng` — SearXNG（网页搜索）/,
     )
   })
 })

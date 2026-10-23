@@ -15,7 +15,7 @@ import { describe, it, before } from 'node:test'
 import { SourceRegistry } from '../src/registry.js'
 import { mergeOutputs, normalizeUrl, parseSourceList } from '../src/merge.js'
 import { formatCatalog, formatFactResult, formatWebResult } from '../src/format.js'
-import { DEFAULTS, MODE_CHAIN, ON_ERROR_NEXT, ON_ERROR_STOP, parseInstances, resolveConfig } from '../config.js'
+import { DEFAULTS, ON_ERROR_NEXT, ON_ERROR_STOP, parseDisabledTypes, parseInstances, resolveConfig } from '../config.js'
 import { WEB_SOURCES } from '../src/sources/web.js'
 import { FACT_SOURCES } from '../src/sources/fact.js'
 import { __setFetchForTest } from '../src/http.js'
@@ -130,15 +130,19 @@ describe('merge', () => {
 describe('config', () => {
   it('resolves defaults', () => {
     const config = resolveConfig(undefined, knownType)
-    assert.equal(config.mode, MODE_CHAIN)
     assert.equal(config.maxResults, DEFAULTS.maxResults)
+    assert.deepEqual(JSON.parse(config.disabledTypes), [])
     assert.equal(parseInstances(config.instances, knownType).length, 6)
   })
 
-  it('rejects an unknown key and a bad mode', () => {
+  it('rejects an unknown key and a bad integer', () => {
     assert.throws(() => resolveConfig({ nope: 1 }, knownType), /unknown config key/)
-    assert.throws(() => resolveConfig({ mode: 'turbo' }, knownType), /`mode` must be one of/)
     assert.throws(() => resolveConfig({ maxResults: 0 }, knownType), /`maxResults` must be an integer/)
+  })
+
+  it('keeps only known type ids in disabledTypes', () => {
+    assert.deepEqual(parseDisabledTypes('["tavily","nope","bocha"]', knownType), ['tavily', 'bocha'])
+    assert.deepEqual(parseDisabledTypes('not json', knownType), [])
   })
 
   it('drops malformed instances and de-duplicates ids', () => {

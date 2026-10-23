@@ -52,18 +52,16 @@ dsh 内置的 `web_search` 只有一个提供方（DeepSeek 官方），社区�
 
 - 不带 `query` 或不带 `sources` 调用 → 返回**可用源目录**（每个源一行：id、名称、类型、一句话说明），
   模型据此再带 `sources` 发起真正的检索。
-- **没启用、或需要 key 但没配 key 的源不会出现在目录里**——模型永远点不到一个跑不起来的源。
-- 同名参数：`sources`（点名，可多选）、`mode`、`max_results`。
+- **没启用、或需要 key 但没配 key 的类型不会出现在目录里**——模型永远点不到一个跑不起来的源。
+- 参数：`sources`（点名类型，可多选）、`max_results`。没有 mode：点名的类型**总是并行**查询后合并，
+  同类型内部才按优先级失败转移。
 
-### `federated_web_search(query, sources, mode?, max_results?)`
+### `federated_web_search(query, sources, max_results?)`
 
-跨多个网页搜索源检索，结果按 URL 归一化去重合并，**被多个源同时命中的结果排前面**。
-回答型源（Tavily/Grok）额外给出回答与引用。
+跨多个网页搜索类型检索，**每种类型并行发起**，结果按 URL 归一化去重合并，
+**被多个类型同时命中的结果排前面**。回答型源（Tavily/Grok）额外给出回答与引用。
 
-- `sources`：点名实例 id 或类型 id，如 `["bocha","bigmodel"]`（中文查询）或 `["tavily","exa"]`（英文技术）。
-- `mode`：
-  - `chain`（默认）——按你的优先级顺序逐个尝试，**第一个成功的就停**，省调用省钱；
-  - `parallel`——同时查所有点名的源并合并，召回更高、调用更多。
+- `sources`：点名类型 id，如 `["bocha","bigmodel"]`（中文查询）或 `["tavily","exa"]`（英文技术）。
 
 ### `federated_fact_lookup(query, sources, max_results?)`
 
@@ -75,17 +73,17 @@ dsh 内置的 `web_search` 只有一个提供方（DeepSeek 官方），社区�
 ## 优先级与失败转移
 
 ```
-AI 点名：["bocha", "tavily-1", "tavily-2"]
-  ├─ bocha      失败 → 换下一个点名的源（绝不影响其他源）
-  ├─ tavily-1   失败 → 同类型的下一个实例（tavily-2）顶上
-  └─ tavily-2   失败 → 这个源就此失败，结果里汇报原因
+AI 点名：["bocha", "tavily"]
+  ├─ bocha     ── 并行 ──┐
+  └─ tavily              │  两个类型同时查，结果合并去重
+       ├─ tavily-1 失败 → 同类型的下一个实例顶上
+       └─ tavily-2 失败 → 这个类型就此失败，结果里汇报原因
 ```
 
-- 同一**类型**下的实例是一条回退链，按列表顺序尝试。
-- 回退链由每个实例的 `onError` 控制：`next`（默认）换下一个，`stop` 直接失败。
-- **源与源之间永远独立**：一个源失败（包括 `stop` 终止）不会取消其他源，也不会让整次调用失败。
-  每个源在结果里有自己的小节或自己的失败原因。
-- `mode: chain` 时按优先级在第一个成功的源处收尾；`mode: parallel` 时全部并发后合并。
+- **类型之间并行**：点名的每个类型同时发起查询，结果合并去重。
+- **同类型实例是回退链**：按列表顺序尝试，`onError: next`（默认）换下一个，`stop` 直接失败。
+- **类型之间永远独立**：一个类型失败（含 `stop`）不会取消其他类型，也不会让整次调用失败，
+  每个类型在结果里有自己的小节或自己的失败原因。
 
 ## 安装
 
@@ -130,21 +128,22 @@ Tavily 的 `/usage` 每 key 每 10 分钟只允许 10 次，因此宿主侧做�
 - id: dsh-information
   name: dsh-information
   config:
-    mode: chain            # chain=逐个尝试（默认）| merge=多源合并
-    instances: '[{"id":"wikipedia","type":"wikipedia","name":"维基百科","enabled":true,"onError":"next"}]'
+    disabledTypes: '[]'    # 整类停用的类型 id
+    instances: '[{"id":"wikipedia","type":"wikipedia","name":"百科","onError":"next"}]'
     maxResults: 5          # 1–20
     timeoutMs: 20000       # 1000–120000
 ```
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `mode` | `chain` | 未点名源时的执行方式 |
-| `instances` | 6 个免 key 事实源 | JSON 字符串；`[]` = 一个源都不配 |
+| `disabledTypes` | `[]` | 整类停用的类型 id（JSON 字符串数组） |
+| `instances` | 6 个免 key 事实源 | JSON 字符串；`[]` = 一个实例都不配 |
 | `maxResults` | `5` | 单源单次返回条数 |
 | `timeoutMs` | `20000` | 单源超时 |
 
-实例字段：`id`（不可改，派生凭据引用）、`type`、`name`、`enabled`、
+实例字段：`id`（不可改，派生凭据引用）、`type`、`name`、
 `onError`（`next`/`stop`）、`baseUrl`（可选）、`extra`（厂商参数，可选）。
+启用/停用是**类型级**的（设置界面类型标题行的开关），实例没有开关。
 
 ## 扩展一个新信息源
 
@@ -197,7 +196,7 @@ sources, with a dependency-injection core:
 - **Fail-over** is the default: within a type the next instance takes over when
   one fails — unless that instance opts out with `onError: 'stop'`.
 - **Sources are independent**: a failing source, including one that aborts on
-  `stop`, never cancels another source the model asked for.
+  `stop`, never cancels another type the model asked for.
 
 Tools (deliberately not named `web_search`, which the harness already owns):
 
