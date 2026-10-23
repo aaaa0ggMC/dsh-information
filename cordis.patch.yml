@@ -1,0 +1,21 @@
+# dsh-information: install this bundle and mount its one Host plugin row.
+#
+# The row carries no `config` block on purpose: every tunable falls back to the
+# documented defaults in config.js, so this patch keeps activating across
+# upgrades even while an older module generation is still loaded. Override
+# values from the profile patch layer instead; a matching override replaces the
+# whole `config` object, so copy every key you want to change:
+#
+# - id: dsh-information
+#   name: dsh-information
+#   config:
+#     mode: multi
+#     webSources: tavily,bocha,bigmodel
+#     webSource: tavily
+#     factSources: wikipedia,wiktionary,openalex,crossref,arxiv,hackernews,github,duckduckgo
+#     maxResults: 5
+#     timeoutMs: 20000
+#     instances: "[]"
+- insert:
+    - id: dsh-information
+      name: dsh-information
