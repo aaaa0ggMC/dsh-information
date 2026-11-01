@@ -308,3 +308,73 @@ describe('federated_web_search', () => {
     )
   })
 })
+
+describe('credentials mounted after the plugin', () => {
+  /**
+   * The Loader reconciles layers asynchronously, so `credentials` can be
+   * mounted after this row applies. A handle captured at apply time is then
+   * `undefined` forever: every key the settings card writes is stored, yet
+   * every read comes back empty and the keyed sources stay out of the catalog
+   * for the life of the process — the "saved but never used" bug.
+   */
+  function lateCtx(secrets) {
+    const tools = new Map()
+    const store = {
+      resolve: async (ref) => (secrets[ref] ? { value: secrets[ref], source: 'file' } : undefined),
+      set: async (ref, value) => {
+        secrets[ref] = value
+      },
+      unset: async (ref) => {
+        delete secrets[ref]
+      },
+    }
+    const pending = []
+    const ctx = {
+      // Not mounted yet when the row applies.
+      get: () => undefined,
+      tools: { register: (definition) => tools.set(definition.name, definition) },
+      web: { registerSearchProvider: () => {} },
+      on: () => {},
+      effect: (fn) => fn(),
+      logger: { warn: () => {}, info: () => {} },
+      inject: (names, callback) => {
+        pending.push({ names, callback })
+      },
+    }
+    return { ctx, tools, store, pending }
+  }
+
+  it('uses a key written after apply without a restart', async () => {
+    __setFetchForTest(
+      fakeFetch([['api.tavily.com', { body: { answer: '', results: [{ title: 'T', url: 'https://t.test/1', content: 'body' }] } }]]),
+    )
+    const secrets = {}
+    const { ctx, tools, store, pending } = lateCtx(secrets)
+    apply(ctx, { instances: JSON.stringify([{ id: 'tv', type: 'tavily', name: 'Tavily', enabled: true }]) })
+
+    // Before the store exists: a keyed source with no key is not offered.
+    const before = await tools.get('federated_web_search').execute({}, { signal: undefined })
+    assert.doesNotMatch(before.text, /`tavily`/)
+
+    // The store mounts, and the settings card saves a key afterwards.
+    for (const { names, callback } of pending) {
+      if (!names.includes('credentials')) continue
+      callback({
+        credentials: store,
+        connection: { requestRejection: () => undefined },
+        webServer: { register: () => {} },
+        configEditor: { entries: () => [] },
+        effect: (fn) => fn(),
+      })
+    }
+    await store.set('INFO_TV', 'tvly-test')
+
+    // The very next call must already see it.
+    const after = await tools.get('federated_web_search').execute({}, { signal: undefined })
+    assert.match(after.text, /`tavily` — Tavily（网页搜索）/)
+    const value = await tools.get('federated_web_search').execute({ query: 'q', sources: ['tv'] }, { signal: undefined })
+    assert.equal(value.sources.length, 1)
+    assert.equal(value.sources[0].url, 'https://t.test/1')
+    __setFetchForTest(null)
+  })
+})

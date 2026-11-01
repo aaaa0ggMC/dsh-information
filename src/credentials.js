@@ -11,10 +11,18 @@
  */
 
 /**
- * @param {{ credentials?: { resolve(ref: string): Promise<{ value: string } | undefined> }, env?: Record<string, string | undefined> }} options
+ * @param {{
+ *   credentials?:
+ *     | { resolve(ref: string): Promise<{ value: string } | undefined> }
+ *     | (() => { resolve(ref: string): Promise<{ value: string } | undefined> } | undefined),
+ *   env?: Record<string, string | undefined>,
+ * }} options `credentials` may be a getter: the store service can be mounted
+ *   after the plugin that needs it, so the handle is read on every call.
  */
 export function createCredentialResolver({ credentials, env }) {
   const environment = env ?? process.env
+  /** Read the store now, not when the resolver was created. */
+  const store = typeof credentials === 'function' ? credentials : () => credentials
 
   /**
    * @param {string} ref
@@ -23,7 +31,7 @@ export function createCredentialResolver({ credentials, env }) {
   async function resolve(ref) {
     if (!ref) return ''
     try {
-      const stored = await credentials?.resolve?.(ref)
+      const stored = await store()?.resolve?.(ref)
       const value = typeof stored?.value === 'string' ? stored.value.trim() : ''
       if (value) return value
     } catch {
