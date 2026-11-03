@@ -37,7 +37,10 @@ window.__ModuleLoader__.load({
     const h = React.createElement
 
     const NS = 'settings.information'
-    const API = 'dsh-information/api/settings'
+    // Root-relative on purpose: a relative path resolves against the address bar,
+    // so the card lost its settings the moment the page was reachable under a
+    // different host or a path prefix. The API is mounted at the server root.
+    const API = '/dsh-information/api/settings'
 
     const CSS = `
 .di-page{display:flex;flex-direction:column;min-width:0}
@@ -363,7 +366,9 @@ window.__ModuleLoader__.load({
 
       const load = React.useCallback(async () => {
         try {
-          const response = await fetch(API, { headers: { accept: 'application/json' } })
+          // `no-store`: the host is the source of truth, and a cached copy would
+          // keep showing the sources as they were before the last save.
+          const response = await fetch(API, { headers: { accept: 'application/json' }, cache: 'no-store' })
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
           const data = await response.json()
           setState(data)

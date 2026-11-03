@@ -200,7 +200,23 @@ export function apply(ctx, rawConfig) {
   const typeEnabled = (typeId) => !disabledTypes.has(typeId)
   // Optional: a composition without a credential store still loads, and keys
   // then come from the environment alone.
-  const credentials = createCredentialResolver({ credentials: ctx.get('credentials') })
+  //
+  // The store is looked up on **every** resolution, never captured once here:
+  // this row can apply before the `credentials` plugin is mounted (the Loader
+  // reconciles layers asynchronously), and a handle captured at apply time then
+  // stays `undefined` for the life of the process. The symptom is confusing —
+  // a key saved from the settings card is written to the store, yet every later
+  // read comes back empty, so the source never becomes usable and the card
+  // keeps reporting it as unconfigured.
+  let credentialStore
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['credentials'], (scope) => {
+      credentialStore = scope.credentials
+    })
+  }
+  const credentials = createCredentialResolver({
+    credentials: () => credentialStore ?? ctx.get('credentials'),
+  })
 
   /** Credentials-store ref derived from an instance id: stable and readable. */
   const refOf = (instance) => `INFO_${instance.id.replace(/[^a-zA-Z0-9]+/g, '_').toUpperCase()}`
