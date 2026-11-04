@@ -131,8 +131,14 @@ describe('config', () => {
   it('resolves defaults', () => {
     const config = resolveConfig(undefined, knownType)
     assert.equal(config.maxResults, DEFAULTS.maxResults)
+    assert.equal(config.ignoreUnknownSources, true)
     assert.deepEqual(JSON.parse(config.disabledTypes), [])
     assert.equal(parseInstances(config.instances, knownType).length, 6)
+  })
+
+  it('accepts an explicit strict mode and rejects non-boolean values', () => {
+    assert.equal(resolveConfig({ ignoreUnknownSources: false }, knownType).ignoreUnknownSources, false)
+    assert.throws(() => resolveConfig({ ignoreUnknownSources: 'yes' }, knownType), /`ignoreUnknownSources` must be a boolean/)
   })
 
   it('rejects an unknown key and a bad integer', () => {
@@ -193,6 +199,23 @@ describe('format', () => {
     assert.match(text, /### Wikipedia 概要/)
     assert.match(text, /\*\*Lambda calculus\*\* — a formalism/)
     assert.match(text, /### OpenAlex 学术\n- 取数失败：timeout/)
+  })
+
+  it('lists ignored sources in a web result', () => {
+    const text = formatWebResult({
+      query: 'q',
+      answer: '',
+      hits: [{ title: 'Hit', url: 'https://x.test/1', snippet: 'body', engines: ['tavily'] }],
+      failed: [],
+      ignored: ['nope'],
+    })
+    assert.match(text, /已忽略的来源（网页搜索）：nope/)
+    assert.match(text, /本次结果只来自实际运行的来源/)
+  })
+
+  it('lists ignored sources in a fact result', () => {
+    const text = formatFactResult({ query: 'q', sections: [], ignored: ['wikipedia', 'nope'] })
+    assert.match(text, /已忽略的来源（事实查询）：wikipedia, nope/)
   })
 
   it('lists the catalog for an unknown source error', () => {

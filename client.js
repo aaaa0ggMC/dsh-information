@@ -113,6 +113,8 @@ window.__ModuleLoader__.load({
       'maxResults.hint': '单个信息源一次返回多少条（1–20）。',
       'timeout.label': '超时（ms）',
       'timeout.hint': '单个实例的超时时间。',
+      'ignoreUnknownSources.label': '忽略不可用来源',
+      'ignoreUnknownSources.hint': '模型点名了不可用的来源时跳过它，并在结果里说明哪些被忽略；关掉则整次调用直接报错。',
       'type.enabled': '启用该类型',
       'type.count': '{n} 个实例',
       'type.countOne': '1 个实例',
@@ -159,6 +161,9 @@ window.__ModuleLoader__.load({
       'maxResults.hint': 'How many results one source returns per call (1–20).',
       'timeout.label': 'Timeout (ms)',
       'timeout.hint': 'Per-instance timeout.',
+      'ignoreUnknownSources.label': 'Ignore unusable sources',
+      'ignoreUnknownSources.hint':
+        'When the model names a source that is unavailable, skip it and report it in the result instead of failing the whole call. Turn off to restore strict errors.',
       'type.enabled': 'Enable this type',
       'type.count': '{n} instances',
       'type.countOne': '1 instance',
@@ -375,6 +380,7 @@ window.__ModuleLoader__.load({
           setDraft({
             maxResults: data.config.maxResults,
             timeoutMs: data.config.timeoutMs,
+            ignoreUnknownSources: data.config.ignoreUnknownSources !== false,
             disabledTypes: data.types.filter((type) => type.enabled === false).map((type) => type.id),
             instances: data.instances,
           })
@@ -397,11 +403,13 @@ window.__ModuleLoader__.load({
       const dirty = state !== null && draft !== null && JSON.stringify({
         maxResults: draft.maxResults,
         timeoutMs: draft.timeoutMs,
+        ignoreUnknownSources: draft.ignoreUnknownSources,
         disabledTypes: draft.disabledTypes,
         instances: draft.instances.map((i) => ({ id: i.id, type: i.type, name: i.name, onError: i.onError, baseUrl: i.baseUrl ?? '', extra: i.extra ?? {} })),
       }) !== JSON.stringify({
         maxResults: state.config.maxResults,
         timeoutMs: state.config.timeoutMs,
+        ignoreUnknownSources: state.config.ignoreUnknownSources !== false,
         disabledTypes: state.types.filter((type) => type.enabled === false).map((type) => type.id),
         instances: state.instances.map((i) => ({ id: i.id, type: i.type, name: i.name, onError: i.onError, baseUrl: i.baseUrl ?? '', extra: i.extra ?? {} })),
       })
@@ -461,6 +469,7 @@ window.__ModuleLoader__.load({
             config: {
               maxResults: draft.maxResults,
               timeoutMs: draft.timeoutMs,
+              ignoreUnknownSources: draft.ignoreUnknownSources,
               disabledTypes: JSON.stringify(draft.disabledTypes),
               instances: JSON.stringify(draft.instances.map((instance) => ({
                 id: instance.id,
@@ -635,6 +644,16 @@ window.__ModuleLoader__.load({
               value: draft.timeoutMs,
               'aria-label': t('timeout.label'),
               onChange: (event) => setDraft({ ...draft, timeoutMs: Math.max(1000, Math.min(120000, Number(event.target.value) || 1000)) }),
+            }),
+          ),
+          h(
+            'div',
+            { className: 'di-row' },
+            h('div', { className: 'di-main' }, h('span', { className: 'di-label' }, t('ignoreUnknownSources.label')), h('p', { className: 'di-hint' }, t('ignoreUnknownSources.hint'))),
+            h(Switch, {
+              checked: draft.ignoreUnknownSources,
+              onChange: (value) => setDraft({ ...draft, ignoreUnknownSources: value }),
+              label: t('ignoreUnknownSources.label'),
             }),
           ),
         ),

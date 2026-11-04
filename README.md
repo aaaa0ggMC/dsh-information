@@ -132,6 +132,7 @@ Tavily 的 `/usage` 每 key 每 10 分钟只允许 10 次，因此宿主侧做�
     instances: '[{"id":"wikipedia","type":"wikipedia","name":"百科","onError":"next"}]'
     maxResults: 5          # 1–20
     timeoutMs: 20000       # 1000–120000
+    ignoreUnknownSources: true   # 默认宽松：跳过不可用来源并告知模型
 ```
 
 | 字段 | 默认 | 说明 |
@@ -140,6 +141,10 @@ Tavily 的 `/usage` 每 key 每 10 分钟只允许 10 次，因此宿主侧做�
 | `instances` | 6 个免 key 事实源 | JSON 字符串；`[]` = 一个实例都不配 |
 | `maxResults` | `5` | 单源单次返回条数 |
 | `timeoutMs` | `20000` | 单源超时 |
+| `ignoreUnknownSources` | `true` | 模型点名的来源不可用时（未启用 / 缺密钥 / 名字对不上）跳过它，其余照常执行，并在结果里列出被忽略的来源；设为 `false` 恢复严格模式：整次调用直接报错 |
+
+宽松模式下，如果一个可用来源都没对上，仍然报错（没东西可查），错误里会带上被跳过的名字和可用来源目录。
+设置卡「通用」里也有同名开关，改了即时生效。
 
 实例字段：`id`（不可改，派生凭据引用）、`type`、`name`、
 `onError`（`next`/`stop`）、`baseUrl`（可选）、`extra`（厂商参数，可选）。
@@ -197,6 +202,10 @@ sources, with a dependency-injection core:
   one fails — unless that instance opts out with `onError: 'stop'`.
 - **Sources are independent**: a failing source, including one that aborts on
   `stop`, never cancels another type the model asked for.
+- **Lenient matching (default)**: a source the model names that cannot run right
+  now is skipped, the rest still run, and the result lists the skipped names.
+  Set `ignoreUnknownSources: false` for the old strict behavior (the whole call
+  fails on an unknown source).
 
 Tools (deliberately not named `web_search`, which the harness already owns):
 

@@ -193,6 +193,28 @@ describe('federated_fact_lookup', () => {
     assert.match(value.text, /\*\*Lambda calculus\*\*/)
     __setFetchForTest(null)
   })
+
+  it('skips an unknown name and reports it (lenient default)', async () => {
+    __setFetchForTest(fakeFetch([['en.wikipedia.org', { body: WIKI_BODY }]]))
+    const { ctx, tools } = fakeCtx()
+    apply(ctx, undefined)
+    const value = await tools.get('federated_fact_lookup').execute(
+      { query: 'lambda', sources: ['wikipedia', 'nope'] },
+      { signal: undefined },
+    )
+    assert.equal(value.sections.length, 1)
+    assert.match(value.text, /已忽略的来源（事实查询）：nope/)
+    __setFetchForTest(null)
+  })
+
+  it('rejects an unknown name when ignoreUnknownSources is off', async () => {
+    const { ctx, tools } = fakeCtx()
+    apply(ctx, { ignoreUnknownSources: false })
+    await assert.rejects(
+      tools.get('federated_fact_lookup').execute({ query: 'lambda', sources: ['wikipedia', 'nope'] }, { signal: undefined }),
+      /unknown fact source\(s\): nope/,
+    )
+  })
 })
 
 describe('federated_web_search', () => {
@@ -273,11 +295,11 @@ describe('federated_web_search', () => {
         { id: 'bc', type: 'bocha', name: '博查', enabled: true },
       ]),
     })
-    // Naming the disabled type is refused with the catalog, so the model can
-    // recover in the same turn.
+    // Naming only the disabled type leaves nothing to run: the call fails,
+    // naming the skipped source plus the catalog, so the model can recover.
     await assert.rejects(
       tools.get('federated_web_search').execute({ query: 'q', sources: ['bocha'] }, { signal: undefined }),
-      /unknown web source\(s\): bocha/,
+      /no usable web information source\. Skipped unknown source\(s\): bocha[\s\S]*`tavily` — Tavily（网页搜索）/,
     )
     const value = await tools.get('federated_web_search').execute({ query: 'q', sources: ['tavily'] }, { signal: undefined })
     assert.deepEqual(value.sources.map((source) => source.engines), [['tavily']])
@@ -299,12 +321,36 @@ describe('federated_web_search', () => {
     assert.deepEqual(bare.sources, [])
   })
 
-  it('lists the catalog when the model names an unknown source', async () => {
+  it('lists the catalog when the model names only unknown sources', async () => {
     const { ctx, tools } = fakeCtx()
     apply(ctx, { instances: JSON.stringify([{ id: 'sx', type: 'searxng', name: 'SearXNG', enabled: true, baseUrl: 'https://searx.be' }]) })
     await assert.rejects(
       tools.get('federated_web_search').execute({ query: 'q', sources: ['nope'] }, { signal: undefined }),
-      /unknown web source\(s\): nope[\s\S]*`searxng` — SearXNG（网页搜索）/,
+      /no usable web information source\. Skipped unknown source\(s\): nope[\s\S]*`searxng` — SearXNG（网页搜索）/,
+    )
+  })
+
+  it('ignores an unknown name but runs the usable sources (lenient default)', async () => {
+    __setFetchForTest(
+      fakeFetch([['api.tavily.com', { body: { answer: 'the answer', results: [{ title: 'T', url: 'https://x.test/1', content: 'from tavily' }] } }]]),
+    )
+    const { ctx, tools } = fakeCtx({ INFO_TV: 'sk-tv' })
+    apply(ctx, { instances: JSON.stringify([{ id: 'tv', type: 'tavily', name: 'Tavily', enabled: true }]) })
+    const value = await tools.get('federated_web_search').execute({ query: 'q', sources: ['tv', 'nope'] }, { signal: undefined })
+    assert.equal(value.sources.length, 1)
+    assert.match(value.text, /已忽略的来源（网页搜索）：nope/)
+    __setFetchForTest(null)
+  })
+
+  it('rejects an unknown name when ignoreUnknownSources is off', async () => {
+    const { ctx, tools } = fakeCtx({ INFO_TV: 'sk-tv' })
+    apply(ctx, {
+      ignoreUnknownSources: false,
+      instances: JSON.stringify([{ id: 'tv', type: 'tavily', name: 'Tavily', enabled: true }]),
+    })
+    await assert.rejects(
+      tools.get('federated_web_search').execute({ query: 'q', sources: ['tv', 'nope'] }, { signal: undefined }),
+      /unknown web source\(s\): nope/,
     )
   })
 })

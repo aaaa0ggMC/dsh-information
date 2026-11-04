@@ -54,6 +54,13 @@ export const DEFAULTS = Object.freeze({
   maxResults: 5,
   /** Per-instance timeout. */
   timeoutMs: 20000,
+  /**
+   * Lenient source matching: a source the model named that cannot run right now
+   * (switched off, missing a key, or a typo) is skipped, and the result says
+   * which names were skipped. `false` restores the strict behavior of rejecting
+   * the whole call.
+   */
+  ignoreUnknownSources: true,
 })
 
 const KNOWN_KEYS = Object.freeze(Object.keys(DEFAULTS))
@@ -179,6 +186,9 @@ export function resolveConfig(raw, knownType) {
       fail(`\`${key}\` must be an integer in [${minimum}, ${INTEGER_MAXIMUMS[key]}], got ${JSON.stringify(config[key])}`)
     }
   }
+  if (typeof config.ignoreUnknownSources !== 'boolean') {
+    fail(`\`ignoreUnknownSources\` must be a boolean, got ${JSON.stringify(config.ignoreUnknownSources)}`)
+  }
 
   const instances = parseInstances(config.instances, knownType)
   if (instances.length === 0 && config.instances !== '[]') {
@@ -190,5 +200,6 @@ export function resolveConfig(raw, knownType) {
     disabledTypes: JSON.stringify(parseDisabledTypes(config.disabledTypes, knownType)),
     maxResults: config.maxResults,
     timeoutMs: config.timeoutMs,
+    ignoreUnknownSources: config.ignoreUnknownSources,
   })
 }
