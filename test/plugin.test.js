@@ -118,6 +118,15 @@ describe('federated_fact_lookup', () => {
     assert.match(value.text, /### GitHub 仓库/)
     assert.match(value.text, /### DuckDuckGo 即时回答/)
     assert.equal(value.sections.length, 6)
+    // The registry rejects undeclared output keys at runtime. Pin the fact-hit
+    // contract here so a source that starts returning a new field (arXiv's
+    // publishedAt did exactly that) fails this test instead of a live call.
+    const hitProperties = tools.get('federated_fact_lookup').output.schema.properties.sections.items.properties.hits.items.properties
+    for (const section of value.sections) {
+      for (const hit of section.hits ?? []) {
+        for (const key of Object.keys(hit)) assert.ok(key in hitProperties, `undeclared fact hit property: ${key}`)
+      }
+    }
     __setFetchForTest(null)
   })
 

@@ -113,6 +113,10 @@ const FACT_OUTPUT_SCHEMA = Object.freeze({
                 title: { type: 'string' },
                 url: { type: 'string' },
                 snippet: { type: 'string' },
+                // arXiv reports the submission date; the source keeps it as a
+                // first-class field, so the output contract has to declare it
+                // (additionalProperties: false rejects anything undeclared).
+                publishedAt: { type: 'string' },
               },
             },
           },
